@@ -8,7 +8,7 @@ To use the code in this repository, the creation of a new virtual environment is
 ```
 conda env create -f environment.yml
 ```
-The environment `amenities-distance` will be created and can be activated with `conda activate urban-graphlets`. Installation via `pip` is not recommend due to constraints in the OSMNx library.
+The environment `amenities-distance` will be created and can be activated with `conda activate amenities-distance`. Installation via `pip` is not recommend due to constraints in the OSMNx library.
 
 ## Repository Setup
 
