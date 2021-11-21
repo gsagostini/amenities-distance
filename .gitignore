@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+notebooks/cache/*
+data/d00_examples/*
+
 # Storing files
 .DS_Store
 
