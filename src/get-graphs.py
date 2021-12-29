@@ -55,9 +55,8 @@ def create_dictionary(graph_type, fua_codes, fua_boundaries, directory='../data/
 ##########################################################################################
 
 #Read the Geodataframe of Buffered FUAs:
-gdf = gpd.read_file(buffered_shp_filepath).set_index('fuacode')
+gdf = gpd.read_file(buffered_shp_filepath)[:5].set_index('fuacode')
 fua_codes = gdf.index.values
 fua_buffered_boundaries = gdf.geometry.values
 
-d1 = create_dictionary('walk', fua_codes, fua_buffered_boundaries)
-d2 = create_dictionary('drive', fua_codes, fua_buffered_boundaries)
+d = create_dictionary('walk', fua_codes, fua_buffered_boundaries)
