@@ -2,6 +2,7 @@ import geopandas as gpd
 import osmnx as ox
 
 import pickle as pkl
+from tqdm import tqdm
 
 ##########################################################################################
 #GOAL: Collect FUA street networks and save them to disk
