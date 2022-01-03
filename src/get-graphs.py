@@ -1,62 +1,40 @@
-import geopandas as gpd
-import osmnx as ox
+import os
+import sys
+from multiprocessing import Pool
 
-import pickle as pkl
-from tqdm import tqdm
+from geopandas import read_file
+from osmnx import graph_from_polygon, save_graphml
+
+import warnings
+warnings.filterwarnings("ignore")
 
 ##########################################################################################
 #GOAL: Collect FUA street networks and save them to disk
 
 buffered_shp_filepath = '../data/d03_intermediate/FUA-buffered-shapefile/FUA-buffered.shp'
 
-walkgraph_dict_filepath = '../data/d03_intermediate/FUA-networks-dictionary-pkl/walk-graphs.pkl'
-drivegraph_dict_filepath = '../data/d03_intermediate/FUA-networks-dictionary-pkl/drive-graphs.pkl'
+# function you want to run in parallel:
+def save_graph(graph_name, boundary, graph_type=sys.argv[1]):
+    #Get the graph
+    graph = graph_from_polygon(boundary, network_type=graph_type)
+    #Get the filename
+    filepath = 'graphs/' + graph_type + '/' + graph_name + '.graphml'
+    #Save the graph
+    save_graphml(graph, filepath=filepath)
+    #Document
+    print(graph_name) 
+    return graph
 
-##########################################################################################
-
-#Do it for walk and then for drive:
-def get_graph(boundary, graph_type):
-    return ox.graph_from_polygon(boundary, network_type=graph_type)
-
-def save(file, filepath):
-    with open(filepath, 'wb') as f:
-        pkl.dump(file, f)
-    return None
-
-def create_dictionary(graph_type, fua_codes, fua_boundaries, directory='../data/d03_intermediate/FUA-networks-dictionary-pkl/', filename=None):
-    if filename is None:
-        filename = graph_type + '-graphs.pkl'
-    filepath = directory+filename
-    
-    #If the file already exists we can continue from where we stopped:
-    try:
-        with open(filepath, 'rb') as f:
-            dictionary = pkl.load(f)
-            keys = list(dictionary.keys())
-    except:
-        dictionary = {}
-        keys = []
-    
-    remaining_keys = list(set(fua_codes)-set(keys))
-    
-    #Iterate over the remaining keys:
-    for fua_code, fua_boundary in tqdm(zip(fua_codes, fua_boundaries), total=len(fua_codes)):
-        #Only do something if we need to:
-        if fua_code in remaining_keys:
-            graph = get_graph(fua_boundary, graph_type)
-            dictionary[fua_code] = graph
-            #Save dictionary:
-            save(dictionary, filepath)
-            
-    return dictionary
-
-
-
-##########################################################################################
-
-#Read the Geodataframe of Buffered FUAs:
-gdf = gpd.read_file(buffered_shp_filepath)[:5].set_index('fuacode')
+# list of tuples to serve as arguments to function:
+gdf = read_file(buffered_shp_filepath).set_index('fuacode')
 fua_codes = gdf.index.values
 fua_buffered_boundaries = gdf.geometry.values
+args = list(zip(fua_codes, fua_buffered_boundaries))
 
-d = create_dictionary('walk', fua_codes, fua_buffered_boundaries)
+# number of cores you have allocated for your slurm task:
+number_of_cores = int(os.environ['SLURM_CPUS_PER_TASK'])
+
+# multiprocssing pool to distribute tasks to:
+with Pool(number_of_cores) as pool:
+    # distribute computations and collect results:
+    results = pool.starmap(save_graph, args)
