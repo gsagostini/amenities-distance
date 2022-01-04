@@ -7,6 +7,8 @@ import geopandas as gpd
 import networkx as nx
 import osmnx as ox
 
+from datetime import datetime
+
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -16,6 +18,8 @@ warnings.filterwarnings("ignore")
 fua_code = sys.argv[1]
 threshold = 2000
 number_of_cores = int(os.environ['SLURM_CPUS_PER_TASK'])
+
+start = datetime.now()
 
 ##########################################################################################
 #Functions adapted from OSMnx:
@@ -148,3 +152,5 @@ if fua_code not in ['USA01', 'USA02', 'USA56']:
 
 else:
     expanded_OD = None
+
+print('RUNTIME:', datetime.now()-start)
