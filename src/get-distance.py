@@ -14,6 +14,7 @@ warnings.filterwarnings("ignore")
 #GOAL: Prepare the OD matrices of each FUA for the distance computations
 
 fua_code = sys.argv[1]
+threshold = 2000
 number_of_cores = int(os.environ['SLURM_CPUS_PER_TASK'])
 
 ##########################################################################################
