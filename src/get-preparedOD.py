@@ -37,6 +37,6 @@ od_matrix = full_od_matrix[full_od_matrix.fuacode==fua_code].reset_index(drop=Tr
 
 trimmed_od = trim_centroids(od_matrix, fua_buffered_boundary)
 
-trimmed_od.to_csv('/scratch/g.spessatoagostini/d02_processed-safegraph/trimmed-OD-per-FUA/' + fua_code+'_trimmed-ODmatrix.csv')
+trimmed_od.to_csv('/scratch/g.spessatoagostini/trimmed-OD-per-FUA/' + fua_code+'_trimmed-ODmatrix.csv')
 
 print('RUNTIME:', datetime.now()-start)
