@@ -111,7 +111,7 @@ def shortest_path_distance(G, orig, dest, weight="length", cpus=1):
 ##########################################################################################
 
 print('FUA: ', fua_code)
-if fua_code not in ['USA01', 'USA02', 'USA56']:
+if fua_code not in ['USA56']:
     #Get the files:
     od_matrix = pd.read_csv('../data/d02_processed-safegraph/OD-per-FUA/'+fua_code+'_ODmatrix.csv').drop(['Unnamed: 0'], axis=1)
     walk_graph = ox.project_graph(ox.load_graphml('../data/d03_intermediate/FUA-networks/walk/'+fua_code+'.graphml'), to_crs='EPSG:5070')
