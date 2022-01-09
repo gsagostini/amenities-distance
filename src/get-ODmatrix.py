@@ -18,7 +18,7 @@ warnings.filterwarnings("ignore")
 fua_code = sys.argv[1]
 threshold = 2000
 number_of_cores = int(os.environ['SLURM_CPUS_PER_TASK'])
-outpath = '/scratch/g.spessatoagostini/OD-per-FUA-streamlinedrun/' + fua_code + '_ODmatrix.csv'
+outpath = '/scratch/g.spessatoagostini/OD-per-FUA/' + fua_code + '_ODmatrix.csv'
 
 start = datetime.now()
 
@@ -156,7 +156,7 @@ try:
     
     #We need to drop some columns (and potentially a few more created by merges and droping indices):
     cols_to_drop = ['origin_x', 'origin_y', 'dest_x', 'dest_y']
-    for col in od.columns:
+    for col in od_matrix_naivedistance.columns:
         if 'Unnamed' in col:
             cols_to_drop.append(col)
     od_matrix_finaldistance = od_matrix_naivedistance.drop(cols_to_drop, axis=1)
@@ -165,5 +165,6 @@ try:
 
 except:
     od_matrix_finaldistance = None
+    print('ERROR')
 
 print('RUNTIME:', datetime.now() - start)
