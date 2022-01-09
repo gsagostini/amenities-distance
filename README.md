@@ -17,20 +17,22 @@ The environment `amenities-distance` will be created and can be activated with `
 │
 ├── environment.yml                <- Environment export generated with `conda env export > environment.yml`
 │
-├── .gitignore                     <- Avoids uploading certain files
+├── data                           <- Data used and produced. Not all files are uploaded, check data section.
+│   ├── d1_raw            
+│   ├── d2_processed-safegraph
+|   ├── d3_intermediary
+│   └── d4_final-OD-matrices
 │
-├── data
-│   ├── d1_raw               
-│   ├── d2_processed
-│   └── d3_results
+├── notebooks                      <- Jupyter notebooks for exploratory data analysis. Naming convention is date MMDD (for ordering) and a short description.
 │
-├── notebooks                      <- Jupyter notebooks. Naming convention is date MMDD (for ordering) and a short description.
-│
-└── src                            <- Source code for use in this project, which can be imported as modules into the notebooks
+└── src                            <- Source code for use in this project, which can be imported as modules into the notebooks. Includes also bash scripts for job submission in a cluster.
+    └── processing-scripts         <- Outdated scripts that perform smaller tasks (prepare matrices, trim rows, etc)
 
 ```
 
 ## Data Sources
+
+Data 
 
 ## References
 
