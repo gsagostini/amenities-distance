@@ -89,17 +89,19 @@ try:
     
     print('  got the boundary')
     
-    #Get the commutes within that FUA and trim them so that no centroids outside the boundary are counted:
+    #Get the commutes within that FUA:
     full_od_matrix = pd.read_csv('../data/d02_processed-safegraph/weeks_od_us_fua.csv')
     fua_raw_od_matrix = full_od_matrix[full_od_matrix.fuacode==fua_code].reset_index(drop=True)
-    od_matrix = trim_centroids(fua_raw_od_matrix, fua_buffered_boundary)
-    
+    full_raw_od_matrix['fuacode'] = fua_code
     print('  got the SafeGraph od matrix')
+    
+    #Trim rows for which centroids lie outside the FUA:
+    od_matrix = trim_centroids(fua_raw_od_matrix, fua_buffered_boundary)
+    print('  trimmed the od matrix')
     
     #Get the graphs:
     walk_graph = ox.project_graph(ox.load_graphml('../data/d03_intermediate/FUA-networks/walk/'+fua_code+'.graphml'), to_crs='EPSG:5070')
     drive_graph = ox.project_graph(ox.load_graphml('../data/d03_intermediate/FUA-networks/drive/'+fua_code+'.graphml'), to_crs='EPSG:5070')
-    
     print('  got the street networks')
 
     #Get the geometries of origin and destinations:
@@ -111,21 +113,21 @@ try:
     
     print('  georeferenced origin and destination')
     
-    #Get the Boolean value of whether we walk or drive (trivially, straight line):
-    od_matrix['walk'] = places_pt.distance(centroids_pt) <= threshold
-    
+    #Get the preferred commute mode:
+    od_matrix['mode'] = places_pt.distance(centroids_pt) <= threshold
+    od_matrix['mode'] = od_matrix['mode'].map({True: 'walk', False:'drive'})
     print('  got preferred mode of commute')
 
     #Now we split the dataframe into two (one for walking and one for driving):
-    od_matrix_dict = {walk: df for walk, df in od_matrix.groupby('walk')}
-    G = {False: drive_graph, True: walk_graph}
+    od_matrix_dict = {mode: df for mode, df in od_matrix.groupby('mode')}
+    G = {'drive': drive_graph, 'walk': walk_graph}
 
     #For each of those dataframes, we do nearest nodes from OSMnx on the appropriate graph and the distance:
     full_dfs = []
-    for walk, df in od_matrix_dict.items():
-        df['origin_node'] = ox.nearest_nodes(G[walk], df['origin_x'], df['origin_y'])
-        df['destination_node'] = ox.nearest_nodes(G[walk], df['dest_x'], df['dest_y'])
-        df['distance'] = shortest_path_distance(G[walk],
+    for mode, df in od_matrix_dict.items():
+        df['origin_node'], df['origin_node_dist'] = ox.nearest_nodes(G[mode], df['origin_x'], df['origin_y'], return_dist=True)
+        df['destination_node'], df['destination_node_dist'] = ox.nearest_nodes(G[mode], df['dest_x'], df['dest_y'], return_dist=True)
+        df['distance'] = shortest_path_distance(G[mode],
                                                 df['origin_node'].values, df['destination_node'].values,
                                                 cpus=number_of_cores)
         full_dfs.append(df)    
@@ -135,19 +137,21 @@ try:
     print('  got naive network distance')
     
     #Get the rows that need reworking:
-    bad_rows = (od_matrix_naivedistance['walk']==True) & (od_matrix_naivedistance['distance'] > threshold)
+    bad_rows = (od_matrix_naivedistance['mode']=='walk') & (od_matrix_naivedistance['distance'] > threshold)
     print('  got bad rows')
     
     #Set the Boolean value of whether we walk or drive to False in the bad rows:
-    od_matrix_naivedistance.loc[bad_rows, 'walk'] = False
+    od_matrix_naivedistance.loc[bad_rows, 'mode'] = 'drive'
 
     #We do nearest nodes from OSMnx on the driving graph and the distance for those rows:
-    od_matrix_naivedistance.loc[bad_rows, 'origin_node'] = ox.nearest_nodes(drive_graph,
-                                                                            od_matrix_naivedistance.loc[bad_rows, 'origin_x'],
-                                                                            od_matrix_naivedistance.loc[bad_rows, 'origin_y'])
-    od_matrix_naivedistance.loc[bad_rows, 'destination_node'] = ox.nearest_nodes(drive_graph,
-                                                                                 od_matrix_naivedistance.loc[bad_rows, 'dest_x'],
-                                                                                 od_matrix_naivedistance.loc[bad_rows, 'dest_y'])
+    od_matrix_naivedistance.loc[bad_rows, 'origin_node'], od_matrix_naivedistance.loc[bad_rows, 'origin_node_dist'] = ox.nearest_nodes(drive_graph,
+                                                                                                                                       od_matrix_naivedistance.loc[bad_rows, 'origin_x'],
+                                                                                                                                       od_matrix_naivedistance.loc[bad_rows, 'origin_y'], 
+                                                                                                                                       return_dist=True)
+    od_matrix_naivedistance.loc[bad_rows, 'destination_node'], od_matrix_naivedistance.loc[bad_rows, 'destination_node_dist'] = ox.nearest_nodes(drive_graph,
+                                                                                                                                                 od_matrix_naivedistance.loc[bad_rows, 'dest_x'],
+                                                                                                                                                 od_matrix_naivedistance.loc[bad_rows, 'dest_y'], 
+                                                                                                                                                 return_dist=True)
     od_matrix_naivedistance.loc[bad_rows, 'distance'] = shortest_path_distance(drive_graph,
                                                                                od_matrix_naivedistance.loc[bad_rows, 'origin_node'].values,
                                                                                od_matrix_naivedistance.loc[bad_rows, 'destination_node'].values,
