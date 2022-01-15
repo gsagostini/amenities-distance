@@ -92,7 +92,7 @@ try:
     #Get the commutes within that FUA:
     full_od_matrix = pd.read_csv('../data/d02_processed-safegraph/weeks_od_us_fua.csv')
     fua_raw_od_matrix = full_od_matrix[full_od_matrix.fuacode==fua_code].reset_index(drop=True)
-    full_raw_od_matrix['fuacode'] = fua_code
+    fua_raw_od_matrix['fuacode'] = fua_code
     print('  got the SafeGraph od matrix')
     
     #Trim rows for which centroids lie outside the FUA:
