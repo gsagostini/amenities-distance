@@ -1,10 +1,10 @@
-import os
 import sys
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
 
 import pandas as pd
 import geopandas as gpd
 import networkx as nx
+import taxicab.distance as tc
 import osmnx as ox
 
 from datetime import datetime
@@ -18,50 +18,14 @@ warnings.filterwarnings("ignore")
 fua_code = sys.argv[1]
 threshold = 2000
 number_of_cores = int(os.environ['SLURM_CPUS_PER_TASK'])
-outpath = '/scratch/g.spessatoagostini/OD-per-FUA-last11M/' + fua_code + '_ODmatrix.csv'
+outpath = '/scratch/g.spessatoagostini/OD-per-FUA-taxicab/' + fua_code + '_ODmatrix.csv'
 
 start = datetime.now()
 
 ##########################################################################################
 
-#Functions adapted from OSMnx to compute distance:
+#Wrapping the taxicab in parallel:
 
-def _single_shortest_path_distance(G, orig, dest, weight):
-    try:
-        return nx.shortest_path_length(G, orig, dest, weight=weight) #change function here from G. Boeing's OSMNx repo
-    except nx.exception.NetworkXNoPath:
-        return None
-    
-def shortest_path_distance(G, orig, dest, weight="length", cpus=1):
-    if not (hasattr(orig, "__iter__") or hasattr(dest, "__iter__")):
-        # if neither orig nor dest is iterable, just return the shortest path
-        return _single_shortest_path_distance(G, orig, dest, weight)
-
-    elif hasattr(orig, "__iter__") and hasattr(dest, "__iter__"):
-        # if both orig and dest are iterables ensure they have same lengths
-        if len(orig) != len(dest):  # pragma: no cover
-            raise ValueError("orig and dest must contain same number of elements")
-
-        if cpus is None:
-            cpus = cpu_count()
-        cpus = min(cpus, cpu_count())
-
-        if cpus == 1:
-            # if single-threading, calculate each shortest path one at a time
-            paths = [_single_shortest_path_distance(G, o, d, weight) for o, d in zip(orig, dest)]
-        else:
-            # if multi-threading, calculate shortest paths in parallel
-            args = ((G, o, d, weight) for o, d in zip(orig, dest))
-            pool = Pool(cpus)
-            sma = pool.starmap_async(_single_shortest_path_distance, args)
-            paths = sma.get()
-            pool.close()
-            pool.join()
-        return paths
-
-    else:
-        # if only one of orig or dest is iterable and the other is not
-        raise ValueError("orig and dest must either both be iterable or neither must be iterable")
 
 ##########################################################################################
 
@@ -172,3 +136,4 @@ except:
     print('ERROR')
 
 print('RUNTIME:', datetime.now() - start)
+
