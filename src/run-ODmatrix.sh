@@ -1,7 +1,7 @@
 #!/bin/sh -l
 #SBATCH -N 1      
 #SBATCH -n 1      
-#SBATCH -c 6
+#SBATCH -c 8
 #SBATCH -t 23:59:00      
 #SBATCH --partition=short
 #SBATCH --array=1-162
