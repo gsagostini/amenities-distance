@@ -11,6 +11,9 @@ from shapely.ops import snap, split
 
 pd.options.mode.chained_assignment = None
 
+import warnings
+warnings.filterwarnings("ignore")
+
 ##########################################################################################
 #GOAL: Expand the street networks by adding the POIs and centroids of interest
 
@@ -35,7 +38,7 @@ networks_dir = '../data/d03_intermediate/FUA-networks/'
 # Yuwen Chang
 # 2020-08-16
 
-def connect_poi(pois, nodes, edges, key_col=None, path=None, threshold=200, knn=5, meter_epsg=5070):
+def connect_poi(pois, nodes, edges, key_col='numerical_id', path=None, threshold=200, knn=5, meter_epsg=5070):
     """Connect and integrate a set of POIs into an existing road network.
     Given a road network in the form of two GeoDataFrames: nodes and edges,
     link each POI to the nearest edge (road segment) based on its projection
@@ -198,7 +201,7 @@ def connect_poi(pois, nodes, edges, key_col=None, path=None, threshold=200, knn=
 
         # all edges, newly added edges only
         return edges, new_edges
-
+    
     # 0-2: configurations
     # set poi arguments
     node_highway_pp = 'projected_pap'  # POI Access Point
@@ -226,6 +229,7 @@ def connect_poi(pois, nodes, edges, key_col=None, path=None, threshold=200, knn=
     print("Projecting POIs to the network...")
     pois_meter['near_idx'] = [list(Rtree.nearest(point.bounds, knn))
                               for point in pois_meter['geometry']]  # slow
+    
     pois_meter['near_lines'] = [edges_meter['geometry'][near_idx]
                                 for near_idx in pois_meter['near_idx']]  # very slow
     pois_meter['kne_idx'], knes = zip(
@@ -324,11 +328,14 @@ def expand_graph(nodes, edges, centroids, pois):
     
     centroids_new = gpd.GeoDataFrame(centroids.rename({'census_block_group':'place_id'}, axis=1), crs='EPSG:4326')
     pois_new = gpd.GeoDataFrame(pois.rename({'safegraph_place_id':'place_id'}, axis=1), crs='EPSG:4326')
-    external_nodes = centroids_new.append(pois_new)
+    external_nodes = centroids_new.append(pois_new).reset_index(drop=True)
+    external_nodes['numerical_id'] = external_nodes.index
     
     expanded_nodes, expanded_edges = connect_poi(external_nodes, nodes, edges, threshold=1000)
     
-    expanded_graph = ox.utils_graph.graph_from_gdfs(expanded_nodes, expanded_edges)
+    expanded_edges_multi = expanded_edges.set_index(['from','to','key']).rename({'from':'u', 'to':'v'}, axis=1)
+    
+    expanded_graph = ox.utils_graph.graph_from_gdfs(expanded_nodes, expanded_edges_multi)
     
     return expanded_graph
 
@@ -359,17 +366,21 @@ try:
     georeferencing_complete=datetime.now()
     print(' Georeferenced centroids and POIs in:', georeferencing_complete-loading_complete)
     
-    #3. CONSTRUCT THE NEW GRAPHS:
-    nodes_walk, edges_walk = ox.utils_graph.graph_to_gdfs(walk_graph)
-    nodes_drive, edges_drive = ox.utils_graph.graph_to_gdfs(drive_graph)
+    #3. GET THE NODE AND EDGE GDFS:
+    nodes_walk, edges_walk_multi = ox.utils_graph.graph_to_gdfs(walk_graph)
+    edges_walk = edges_walk_multi.reset_index().rename({'u':'from', 'v':'to'}, axis=1)
+
+    nodes_drive, edges_drive_multi = ox.utils_graph.graph_to_gdfs(drive_graph)
+    edges_drive = edges_drive_multi.reset_index().rename({'u':'from', 'v':'to'}, axis=1)
     
+    #4. CONSTRUCT THE NEW GRAPHS:
     expanded_walk_graph = expand_graph(nodes_walk, edges_walk, centroids_gdf, pois_gdf)
     expanded_drive_graph = expand_graph(nodes_walk, edges_walk, centroids_gdf, pois_gdf)
     
     graph_complete=datetime.now()
     print(' Expanded graph in:', graph_complete-georeferencing_complete)
     
-    #4. SAVE:
+    #5. SAVE:
     ox.save_graphml(expanded_walk_graph, filepath='/scratch/g.spessatoagostini/expanded_networks/walk/'+fua_code+'.graphml')
     ox.save_graphml(expanded_drive_graph, filepath='/scratch/g.spessatoagostini/expanded_networks/drive/'+fua_code+'.graphml')
     
