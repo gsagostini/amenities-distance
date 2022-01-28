@@ -27,7 +27,7 @@ outdir = '/scratch/g.spessatoagostini/expanded_networks/'
 #Defining input directories:
 fua_buffered_shapefile_dir = '../data/d03_intermediate/FUA-buffered-shapefile/'
 full_od_matrix_dir = '../data/d02_processed-safegraph/'
-networks_dir = '../data/d03_intermediate/FUA-networks-with-external-points/'
+networks_dir = '../data/d03_intermediate/FUA-networks/'
 
 ##########################################################################################
 
