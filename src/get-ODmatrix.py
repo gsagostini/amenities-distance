@@ -215,9 +215,10 @@ try:
 
     #1. LOAD ALL THE FILES:
     fua_buffered_boundary = get_boundary(fua_code) #get the FUA boundary
+    print('   bdry loaded')
     fua_raw_od_matrix = get_fua_ODmatrix(fua_code) #get the commutes within that FUA
+    print('   od matrix loaded')
     walk_graph, drive_graph = load_graphs(fua_code) #get the graphs
-
     loading_complete=datetime.now()
     print(' Loaded all files in:', loading_complete-start)
 

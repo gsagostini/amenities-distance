@@ -12,4 +12,4 @@ module load anaconda3/2022.01
 source activate amenities
 which python
 
-python get-ODmatrix.py $fua_code 1
+python get-ODmatrix.py $fua_code 2
