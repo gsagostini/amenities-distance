@@ -8,7 +8,7 @@
 
 fua_code=$( awk "NR==$SLURM_ARRAY_TASK_ID" ../data/d02_processed-safegraph/safegraph_fua.txt)
 
-module load anaconda3/3.7
+module load anaconda3/2022.01
 source activate amenities
 which python
 

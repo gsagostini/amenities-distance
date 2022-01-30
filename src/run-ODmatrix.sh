@@ -1,7 +1,7 @@
 #!/bin/sh -l
 #SBATCH -N 1      
 #SBATCH -n 1      
-#SBATCH -c 8
+#SBATCH -c 10
 #SBATCH -t 23:59:00      
 #SBATCH --partition=short
 #SBATCH --array=1-162
@@ -12,4 +12,4 @@ module load anaconda3/2022.01
 source activate amenities
 which python
 
-python get-ODmatrix.py $fua_code 1
+python get-ODmatrix.py $fua_code
