@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import osmnx as ox
+import momepy
 import pandana
 
 import rtree
@@ -24,15 +25,17 @@ warnings.filterwarnings("ignore")
 fua_code = sys.argv[1]
 start = datetime.now()
 
-##########################################################################################
+d_thresh = 2000
+n_thresh = 20
 
-#Defining the output directory:
-outdir = '/scratch/g.spessatoagostini/OD-per-FUA/'
-outdir_gdfs = '/scratch/g.spessatoagostini/expanded_networks/'+fua_code
+max_distance = 50000
+max_pois = 500
 
 ##########################################################################################
 
 #Defining input directories:
+talia_scratch_dir = '/scratch/kaufmann.t/Processed_data/'
+gabriel_scratch_dir = '/scratch/g.spessatoagostini/'
 fua_buffered_shapefile_dir = '../data/d03_intermediate/FUA-buffered-shapefile/'
 full_od_matrix_dir = '../data/d02_processed-safegraph/'
 networks_dir = '../data/d03_intermediate/FUA-networks/'
@@ -43,7 +46,7 @@ networks_dir = '../data/d03_intermediate/FUA-networks/'
 # Yuwen Chang
 # 2020-08-16
 
-def connect_poi(pois, nodes, edges, key_col=None, path=outdir_gdfs, threshold=200, knn=5, meter_epsg=5070):
+def connect_poi(pois, nodes, edges, key_col=None, path=False, threshold=200, knn=5, meter_epsg=5070):
     """Connect and integrate a set of POIs into an existing road network.
     Given a road network in the form of two GeoDataFrames: nodes and edges,
     link each POI to the nearest edge (road segment) based on its projection
@@ -298,40 +301,166 @@ def connect_poi(pois, nodes, edges, key_col=None, path=outdir_gdfs, threshold=20
 def get_boundary(fua_code):
     return gpd.read_file(fua_buffered_shapefile_dir + 'FUA-buffered.shp').set_index('fuacode').loc[[fua_code]]
 
-def get_fua_ODmatrix(fua_code, split_in_half=split):
+def get_fua_ODmatrix(fua_code):
     full_od_matrix = pd.read_csv(full_od_matrix_dir + 'weeks_od_us_fua.csv')
     fua_raw_od_matrix = full_od_matrix[full_od_matrix.fuacode==fua_code].reset_index(drop=True)
     fua_raw_od_matrix['fuacode'] = fua_code
-    
-    if split_in_half == 1:
-        return fua_raw_od_matrix[:len(fua_raw_od_matrix)//2].reset_index(drop=True)
-    elif split_in_half == 2:
-        return fua_raw_od_matrix[len(fua_raw_od_matrix)//2:].reset_index(drop=True)
-    else:
-        return fua_raw_od_matrix
+    return fua_raw_od_matrix
 
-def load_graphs(fua_code, drive=True, proj_crs='EPSG:5070'):
+def load_graphs(fua_code, proj_crs='EPSG:5070'):
     walk_graph = ox.project_graph(ox.load_graphml(networks_dir + 'walk/'+fua_code+'.graphml'), to_crs=proj_crs)
-    
-    if drive:
-        drive_graph = ox.project_graph(ox.load_graphml(networks_dir + 'drive/'+fua_code+'.graphml'), to_crs=proj_crs)
-        return walk_graph, drive_graph
-    
-    else:
-        return walk_graph
+    return walk_graph
 
-def trim_centroids(od_matrix, buffered_boundary, bdry_as_gdf=True):
-    
-    if bdry_as_gdf:
-        buffered_boundary = buffered_boundary.geometry[0]
-    
+def trim_centroids(od_matrix, buffered_boundary_gdf):
+    buffered_boundary = buffered_boundary_gdf.geometry[0]
     centroids_pt = gpd.points_from_xy(x= od_matrix.intptlon, y=od_matrix.intptlat, crs='EPSG:4326')
     rows_to_keep = centroids_pt.within(buffered_boundary)
     trimmed_od_matrix = od_matrix[rows_to_keep].reset_index(drop=True)
-    
-    print('.   total of', len(trimmed_od_matrix), ' rows')
-
     return trimmed_od_matrix
+
+def get_pois(fua_code):
+    pois = pd.read_csv(full_od_matrix_dir+'POI_fua_sub.csv')
+    fua_pois = pois[pois.fuacode==fua_code].reset_index(drop=True)
+    return fua_pois
+
+def get_files(fua_code):
+    fua_buffered_boundary = get_boundary(fua_code) #get the FUA boundary
+    fua_raw_od_matrix = get_fua_ODmatrix(fua_code) #get the commutes within that FUA
+    fua_od_matrix = trim_centroids(fua_raw_od_matrix, fua_buffered_boundary) #exclude far away centroids
+    
+    all_cbgs = fua_od_matrix[['census_block_group', 'intptlon', 'intptlat']]
+    cbgs = all_cbgs.drop_duplicates(subset='census_block_group', ignore_index=True)
+    
+    pois = get_pois(fua_code)
+    
+    graph = load_graphs(fua_code) #get the graph
+    
+    return cbgs, pois, graph
+
+def add_median_columns(all_cbgs_df, fua_cbgs_gdf):
+    relevant_cols = all_cbgs_df[['census_block_group', 'top_category', 'median_dist']].set_index('census_block_group')
+    relevant_dict = dict(tuple(relevant_cols.groupby('top_category')))
+    for cat, df_with_cat in relevant_dict.items():
+        col_name = 'md_' + cat.replace(' ','_')
+        df = df_with_cat[['median_dist']].rename({'median_dist':col_name}, axis=1)
+        fua_cbgs_gdf = fua_cbgs_gdf.merge(df, how='left', left_index=True, right_index=True)
+    return fua_cbgs_gdf
+
+##########################################################################################
+
+def trim_by_number(isochron_df, number):
+    max_number = int(list(isochron_df.columns)[-1][3:])
+    number = min(number, max_number)
+    
+    distances_df = isochron_df.iloc[:, 2:max_number+2]
+    ids_df = isochron_df.iloc[:, max_number+2:]
+    trimmed_df = isochron_df[[]]
+    
+    if number < max_number:
+        dists_to_drop = [k for k in range(number+1, max_number)]
+        ids_to_drop = ['poi{}'.format(k) for k in range(number+1, max_number)]
+        
+        trimmed_dists = distances_df.drop(labels=dists_to_drop, axis=1)
+        trimmed_df['nearest_pois_distances'] = trimmed_dists.values.tolist()
+        
+        trimmed_ids = ids_df.drop(labels=ids_to_drop, axis=1)
+        trimmed_df['nearest_pois_ids'] = trimmed_ids.values.tolist()
+        
+    else:
+        trimmed_df['nearest_pois_distances'] = distances_df.values.tolist()
+        trimmed_df['nearest_pois_ids'] = ids_df.values.tolist()
+    
+    return trimmed_df
+
+def trim_by_dist(isochron_df, dist, max_dist=100000, max_pois=max_pois):
+    max_number = int(list(isochron_df.columns)[-1][3:])
+    dist = min(dist, max_dist)
+    
+    distances_lists_df = trim_by_number(isochron_df, max_pois)
+    trimmed_df = isochron_df[[]]
+    
+    from bisect import bisect
+    def get_trim_number(x, val=dist):
+        return bisect(x, val)
+    distances_lists_df['number'] = distances_lists_df['nearest_pois_distances'].apply(get_trim_number)
+    
+    def trim(l, end):
+        return l[:end]
+    
+    trimmed_df['nearest_pois_distances'] = distances_lists_df.apply(lambda x: trim(x.nearest_pois_distances, x.number), axis=1)
+    trimmed_df['nearest_pois_ids'] = distances_lists_df.apply(lambda x: trim(x.nearest_pois_ids, x.number), axis=1)
+    
+    return trimmed_df
+
+def trim_by_median(isochron_df, max_median=100000, max_pois=max_pois):
+    max_number = int(list(isochron_df.columns)[-1][3:])
+    
+    distances_lists_df = trim_by_number(isochron_df, max_pois)
+    distances_lists_df['md'] = isochron_df.iloc[:,2]
+    trimmed_df = isochron_df[[]]
+    trimmed_df['cbg_mobility_median'] = isochron_df.iloc[:,2]
+    
+    from bisect import bisect
+    def get_trim_number(x, val):
+        return bisect(x, val)
+    distances_lists_df['number'] = distances_lists_df.apply(lambda x: get_trim_number(x.nearest_pois_distances,
+                                                                                      x.md), axis=1)
+    
+    def trim(l, end):
+        return l[:end]
+    
+    trimmed_df['nearest_pois_distances'] = distances_lists_df.apply(lambda x: trim(x.nearest_pois_distances, x.number), axis=1)
+    trimmed_df['nearest_pois_ids'] = distances_lists_df.apply(lambda x: trim(x.nearest_pois_ids, x.number), axis=1)
+    
+    return trimmed_df
+
+def summarize_isochron(isochron_df, trim_method, trim_val=None, cat=None, fua_code='USA11'):
+    """
+    Summarizes the isochron dataframe according to our thresholding method
+    
+    :param isochron_df: dataframe with columns [origin_node, md_cat, 1, ... 100, poi1, ... poi100]
+    :param trim_method: string, one of 'fixed_dist', 'fixed_number', 'median'
+    """
+    if cat is None:
+        cat = [s for s in list(isochron_df.columns) if 'md' in str(s)][0][3:]
+    
+    if trim_method == 'fixed_dist':
+        trimmed_df = trim_by_dist(isochron_df, trim_val)
+    elif trim_method == 'fixed_number':
+        trimmed_df = trim_by_number(isochron_df, trim_val)
+    elif trim_method == 'median':
+        trimmed_df = trim_by_median(isochron_df)
+    else:
+        print('NOT ABLE TO TRIM!')
+        trimmed_df = isochron_df
+    
+    #Compute summary statistics:
+    def median_nan(arr):
+        try:
+            return np.median(arr)
+        except:
+            return np.nan
+    def min_nan(arr):
+        try:
+            return np.min(arr)
+        except:
+            return np.nan
+    def max_nan(arr):
+        try:
+            return np.max(arr)
+        except:
+            return np.nan
+    
+    trimmed_df['median_dist'] = trimmed_df['nearest_pois_distances'].apply(median_nan)
+    trimmed_df['min_dist'] = trimmed_df['nearest_pois_distances'].apply(min_nan)
+    trimmed_df['max_dist'] = trimmed_df['nearest_pois_distances'].apply(max_nan)
+    trimmed_df['count_dist'] = trimmed_df['nearest_pois_distances'].apply(len)
+    
+    #Save:
+    filename = fua_code + '_' + cat + '_isochron_' + trim_method + '.csv'
+    trimmed_df.to_csv('/work/accessibility/Isochrons/'+trim_method+'/'+filename)
+    
+    return trimmed_df
 
 ##########################################################################################
 
@@ -340,65 +469,102 @@ print('FUA: ', fua_code, '\n')
 try:
     
     #1. LOAD ALL THE FILES:
-    fua_buffered_boundary = get_boundary(fua_code) #get the FUA boundary
-    fua_raw_od_matrix = get_fua_ODmatrix(fua_code) #get the commutes within that FUA
-    fua_od_matrix = trim_centroids(fua_raw_od_matrix, fua_buffered_boundary) #exclude far away centroids
-    walk_graph = load_graphs(fua_code, drive=False) #get the graphs
+    start=datetime.now()
+    
+    cbgs, pois, graph = get_files(fua_code)
+    full_cbg_stats = pd.read_csv(talia_scratch_dir+'cbg_links_stats.csv')
 
     loading_complete=datetime.now()
     print(' Loaded all files in:', loading_complete-start)
     
     #2. GET THE GDFS FROM THE GRAPH:
-    nodes_walk_ind, edges_walk_multi = ox.utils_graph.graph_to_gdfs(walk_graph)
-    nodes_walk = nodes_walk_ind.reset_index()
-    edges_walk = edges_walk_multi.reset_index().rename({'u':'from', 'v':'to'}, axis=1)
+    nodes_ind, edges_multi = ox.utils_graph.graph_to_gdfs(graph)
+    edges_raw = edges_multi.reset_index()
+
+    nodes_clean, edges_clean = momepy.nx_to_gdf(momepy.gdf_to_nx(edges_raw.explode(index_parts=True)))
+    edges = edges_clean[['node_start', 'node_end', 'mm_len', 'geometry']].rename({'node_start':'from', 'node_end':'to',
+                                                                                  'mm_len':'length'}, axis=1)
+    nodes = nodes_clean.rename({'nodeID':'osmid'}, axis=1)
     
     gdfs_complete=datetime.now()
     print(' Converted graph to gdf in:', gdfs_complete-loading_complete)
     
     #3. GEOREFERENCE THE POINTS OF INTEREST:
-    pois_pt = gpd.points_from_xy(x=fua_od_matrix.longitude, y=fua_od_matrix.latitude, crs='EPSG:4326')
-    pois_gdf = gpd.GeoDataFrame(fua_od_matrix[['safegraph_place_id']], geometry=pois_pt)
+    pois_pt = gpd.points_from_xy(x=pois.longitude, y=pois.latitude, crs='EPSG:4326')
+    pois_gdf = gpd.GeoDataFrame(pois[['safegraph_place_id', 'top_category']], geometry=pois_pt)
     pois_gdf.drop_duplicates(subset='safegraph_place_id', keep='first', inplace=True)
     pois_gdf = pois_gdf.set_index('safegraph_place_id')
+
+    cbgs_pt = gpd.points_from_xy(x=cbgs.intptlon, y=cbgs.intptlat, crs='EPSG:4326')
+    cbgs_gdf = gpd.GeoDataFrame(cbgs[['census_block_group']], geometry=cbgs_pt)
+    cbgs_gdf.drop_duplicates(subset='census_block_group', keep='first', inplace=True)
+    cbgs_gdf = cbgs_gdf.set_index('census_block_group')
+    cbgs_withmedians_gdf = add_median_columns(full_cbg_stats, cbgs_gdf)
+    cbgs_withmedians_gdf = cbgs_withmedians_gdf.fillna(value=2000)
 
     georeferencing_complete=datetime.now()
     print(' Georeferenced POIs in:', georeferencing_complete-gdfs_complete)
     
     #3. EXPAND THE GRAPH:
-    exp_nodes_walk, exp_edges_walk, pois_with_access_walk = connect_poi(pois_gdf, nodes_walk, edges_walk)
+    exp_nodes, exp_edges, pois_with_access = connect_poi(pois_gdf, nodes, edges)
 
     graph_complete=datetime.now()
     print(' Expanded graph in:', graph_complete-georeferencing_complete)
     
-    #4. FIND ORIGIN AND DESTINATION NODES:
-    cbgs_pt = gpd.points_from_xy(x=fua_od_matrix.intptlon, y=fua_od_matrix.intptlat, crs='EPSG:4326').to_crs('EPSG:5070')
-    cbgs_x, cbgs_y = cbgs_pt.x, cbgs_pt.y
-    fua_od_matrix['origin_node'] = ox.nearest_nodes(walk_graph, cbgs_x, cbgs_y)
-    fua_od_matrix_with_nodes = fua_od_matrix.merge(pois_with_access_walk[['access_node', 'access_distance']], how='left', left_on='safegraph_place_id', right_index=True)
-
-    origins_complete=datetime.now()
-    print(' Found OD nodes in:', origins_complete-graph_complete)
-    
-    #6. BUILD THE NETWORK IN PANDANA:
-    expanded_walk_graph = pandana.Network(exp_nodes_walk.geometry.x, exp_nodes_walk.geometry.y,
-                                          exp_edges_walk['from'], exp_edges_walk['to'],
-                                          edge_weights=exp_edges_walk[['length']])
+    #4. BUILD THE NETWORK IN PANDANA:
+    expanded_graph = pandana.Network(exp_nodes.geometry.x, exp_nodes.geometry.y,
+                                     exp_edges['from'], exp_edges['to'],
+                                     edge_weights=exp_edges[['length']])
     
     pandana_complete=datetime.now()
-    print(' Built pandana network in:', pandana_complete-origins_complete)
+    print(' Built pandana network in:', pandana_complete-graph_complete)
     
-    #7. COMPUTE THE DISTANCES:
-    
-    fua_od_matrix_with_nodes['shortest_distance'] = expanded_walk_graph.shortest_path_lengths(fua_od_matrix_with_nodes.origin_node.values,
-                                                                                          fua_od_matrix_with_nodes.access_node.values,
-                                                                                          imp_name='length')
+    #5. BUILD POI DICTIONARY:
+    pois_gdf['x'] = pois_gdf.geometry.x
+    pois_gdf['y'] = pois_gdf.geometry.y
+    pois_with_access_gdf = pois_gdf.merge(pois_with_access[['access_node', 'access_distance']], left_index=True, right_index=True, how='left')
+    pois_with_access_dict = dict(tuple(pois_with_access_gdf.groupby('top_category')))
 
-    distances_complete=datetime.now()
-    print(' Found distances in:', distances_complete-pandana_complete)
+    poi_dictionary_complete=datetime.now()
+    print(' Found POI dictionary in:', poi_dictionary_complete-pandana_complete)
     
-    #8. SAVE:
-    fua_od_matrix_with_nodes.to_csv(outdir+fua_code+'.csv')
-    
-except:
-    print('\nERROR')
+    #7. SUMMARIZE OVER CATEGORIES:
+    for category in pois_with_access_dict.keys():
+        print('-- Category: ', category)
+
+        median_col = 'md_'+category.replace(' ', '_')
+        if median_col in list(cbgs_withmedians_gdf.columns):
+        
+            expanded_graph.set_pois(category,
+                                    maxdist=max_distance,
+                                    maxitems=max_pois,
+                                    x_col=pois_with_access_dict[category]['x'],
+                                    y_col=pois_with_access_dict[category]['y'])
+
+            cbgs_withmedians_gdf['origin_node'] = expanded_graph.get_node_ids(x_col=cbgs_withmedians_gdf['geometry'].x,
+                                                                              y_col=cbgs_withmedians_gdf['geometry'].y)
+
+            d = expanded_graph.nearest_pois(max_distance, category,
+                                            num_pois=max_pois,
+                                            imp_name='length',
+                                            include_poi_ids=True)
+
+            isochron_df = cbgs_withmedians_gdf[['origin_node', median_col]].merge(d, left_on='origin_node', right_index=True, how='left')
+        
+            isochron_complete=datetime.now()
+            print(' Found the isochrons in:', isochron_complete-poi_dictionary_complete)
+        
+            summarized_dist = summarize_isochron(isochron_df, 'fixed_dist', trim_val=d_thresh)
+            summarized_numb = summarize_isochron(isochron_df, 'fixed_number', trim_val=n_thresh)
+            summarized_median = summarize_isochron(isochron_df, 'median')
+
+            summary_complete = datetime.now()
+            print(' Summarized the isochrons in:', summary_complete-isochron_complete)
+            
+    else:
+        print('  category median not given')
+        
+    print('TOTAL TIME: ', datetime.now()-start)
+        
+except Exception as e:
+    print(e)
